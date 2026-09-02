@@ -1426,6 +1426,22 @@ public final class Imbustatrice {
             java.util.function.Consumer<String> logger,
             boolean forceA4BeforeResize,
             BooleanSupplier cancellationRequested) throws Exception {
+        scaleAndTranslateContent(inputPath, outputPath, scalePct, offsetXpt, offsetYpt, pdfVersion, rotationOpts,
+                logger, forceA4BeforeResize, cancellationRequested, true);
+    }
+
+    public static void scaleAndTranslateContent(
+            String inputPath,
+            String outputPath,
+            float scalePct,
+            float offsetXpt,
+            float offsetYpt,
+            PdfVersion pdfVersion,
+            ResizePageRotationOpts rotationOpts,
+            java.util.function.Consumer<String> logger,
+            boolean forceA4BeforeResize,
+            BooleanSupplier cancellationRequested,
+            boolean smartMode) throws Exception {
 
         if (!(scalePct > 0f))
             throw new IllegalArgumentException("scalePct deve essere > 0");
@@ -1440,16 +1456,16 @@ public final class Imbustatrice {
                 : "";
         int rotatedPages = 0;
 
-        PdfReader reader = new PdfReader(inputPath);
         PdfVersion targetVersion = pdfVersion != null ? pdfVersion : PdfVersion.PDF_1_7;
-        PdfWriter writer = new PdfWriter(outputPath,
-                new WriterProperties()
-                        .setFullCompressionMode(true)
-                        .setCompressionLevel(PDF_COMPRESSION_LEVEL)
-                        .setPdfVersion(targetVersion));
-        writer.setSmartMode(true);
-        try (PdfDocument src = new PdfDocument(reader);
-                PdfDocument dst = new PdfDocument(writer)) {
+        try (PdfReader reader = new PdfReader(inputPath);
+                PdfWriter writer = new PdfWriter(outputPath,
+                        new WriterProperties()
+                                .setFullCompressionMode(true)
+                                .setCompressionLevel(PDF_COMPRESSION_LEVEL)
+                                .setPdfVersion(targetVersion))) {
+            writer.setSmartMode(smartMode);
+            try (PdfDocument src = new PdfDocument(reader);
+                    PdfDocument dst = new PdfDocument(writer)) {
 
             int total = src.getNumberOfPages();
             for (int i = 1; i <= total; i++) {
@@ -1489,12 +1505,13 @@ public final class Imbustatrice {
                     }
                 }
             }
-            throwIfCancelled(isCancelled);
-            if (rotateEnabled) {
-                if (rotatedPages == 0) {
-                    log.accept("Resize: nessuna pagina trovata con la stringa per la rotazione.");
-                } else {
-                    log.accept("Resize: pagine ruotate in totale: " + rotatedPages);
+                throwIfCancelled(isCancelled);
+                if (rotateEnabled) {
+                    if (rotatedPages == 0) {
+                        log.accept("Resize: nessuna pagina trovata con la stringa per la rotazione.");
+                    } else {
+                        log.accept("Resize: pagine ruotate in totale: " + rotatedPages);
+                    }
                 }
             }
         }
@@ -1574,22 +1591,22 @@ public final class Imbustatrice {
             String outputPath,
             PdfVersion pdfVersion) throws Exception {
 
-        PdfReader reader = new PdfReader(inputPath);
         PdfVersion targetVersion = pdfVersion != null ? pdfVersion : PdfVersion.PDF_1_7;
-        PdfWriter writer = new PdfWriter(outputPath,
-                new WriterProperties()
-                        .setFullCompressionMode(true)
-                        .setCompressionLevel(PDF_COMPRESSION_LEVEL)
-                        .setPdfVersion(targetVersion));
-        writer.setSmartMode(true);
-        try (PdfDocument src = new PdfDocument(reader);
-                PdfDocument dst = new PdfDocument(writer)) {
-
-            int total = src.getNumberOfPages();
-            if (total < 1) {
-                throw new IllegalArgumentException("Il PDF sorgente non contiene pagine.");
+        try (PdfReader reader = new PdfReader(inputPath);
+                PdfWriter writer = new PdfWriter(outputPath,
+                        new WriterProperties()
+                                .setFullCompressionMode(true)
+                                .setCompressionLevel(PDF_COMPRESSION_LEVEL)
+                                .setPdfVersion(targetVersion))) {
+            writer.setSmartMode(true);
+            try (PdfDocument src = new PdfDocument(reader);
+                    PdfDocument dst = new PdfDocument(writer)) {
+                int total = src.getNumberOfPages();
+                if (total < 1) {
+                    throw new IllegalArgumentException("Il PDF sorgente non contiene pagine.");
+                }
+                src.copyPagesTo(1, 1, dst);
             }
-            src.copyPagesTo(1, 1, dst);
         }
     }
 
@@ -1640,30 +1657,31 @@ public final class Imbustatrice {
 
         float stepPt = mm(Math.max(1f, gridStepMm)); // evita 0 o negativo
 
-        PdfReader reader = new PdfReader(inputPath);
         PdfVersion targetVersion = pdfVersion != null ? pdfVersion : PdfVersion.PDF_1_7;
-        PdfWriter writer = new PdfWriter(outputPath,
-                new WriterProperties()
-                        .setFullCompressionMode(true)
-                        .setCompressionLevel(PDF_COMPRESSION_LEVEL)
-                        .setPdfVersion(targetVersion));
-        writer.setSmartMode(true);
-        try (PdfDocument src = new PdfDocument(reader);
-                PdfDocument dst = new PdfDocument(writer)) {
+        try (PdfReader reader = new PdfReader(inputPath);
+                PdfWriter writer = new PdfWriter(outputPath,
+                        new WriterProperties()
+                                .setFullCompressionMode(true)
+                                .setCompressionLevel(PDF_COMPRESSION_LEVEL)
+                                .setPdfVersion(targetVersion))) {
+            writer.setSmartMode(true);
+            try (PdfDocument src = new PdfDocument(reader);
+                    PdfDocument dst = new PdfDocument(writer)) {
 
-            int total = src.getNumberOfPages();
-            int last = allPages ? total : 1;
+                int total = src.getNumberOfPages();
+                int last = allPages ? total : 1;
 
-            for (int i = 1; i <= last; i++) {
-                src.copyPagesTo(i, i, dst);
-                // Disegniamo reticolo e anteprime solo sulle pagine richieste.
-                drawReticleOn(dst, i, xpt, ypt, stepPt, barcodeOpts, raccomandataOpts, qrCodeOpts, dataMatrixPayload,
-                        dataMatrixOpts);
+                for (int i = 1; i <= last; i++) {
+                    src.copyPagesTo(i, i, dst);
+                    // Disegniamo reticolo e anteprime solo sulle pagine richieste.
+                    drawReticleOn(dst, i, xpt, ypt, stepPt, barcodeOpts, raccomandataOpts, qrCodeOpts,
+                            dataMatrixPayload, dataMatrixOpts);
+                }
+
+                // Eventualmente sovrapponiamo anche il contatore pagina per facilitare la
+                // verifica.
+                drawGroupPageCounters(dst, 1, last, pageCounterOpts);
             }
-
-            // Eventualmente sovrapponiamo anche il contatore pagina per facilitare la
-            // verifica.
-            drawGroupPageCounters(dst, 1, last, pageCounterOpts);
         }
     }
 

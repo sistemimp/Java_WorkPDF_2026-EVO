@@ -473,6 +473,31 @@ public class PdfDuplexGrouper {
             AddressBlockOpts addressBlockOpts,
             IntConsumer progressListener,
             BooleanSupplier cancellationRequested) throws Exception {
+        process(inputPath, outputPath, marker, ignoreCase, normalize, pdfVersion, logger, barcodeOpts, pageCounterOpts,
+                raccomandataOpts, qrCodeOpts, postaEvolutionOpts, correctionExcelPath, correctionOverlayOpts,
+                pageRotationOpts, addressBlockOpts, progressListener, cancellationRequested, true);
+    }
+
+    public static void process(
+            String inputPath,
+            String outputPath,
+            String marker,
+            boolean ignoreCase,
+            boolean normalize,
+            PdfVersion pdfVersion,
+            Consumer<String> logger,
+            BarcodeOpts barcodeOpts,
+            PageCounterOpts pageCounterOpts,
+            RaccomandataBarcodeOpts raccomandataOpts,
+            QrCodeOpts qrCodeOpts,
+            PostaEvolutionOpts postaEvolutionOpts,
+            String correctionExcelPath,
+            Imbustatrice.CorrectionOverlayOpts correctionOverlayOpts,
+            PageRotationByTextOpts pageRotationOpts,
+            AddressBlockOpts addressBlockOpts,
+            IntConsumer progressListener,
+            BooleanSupplier cancellationRequested,
+            boolean smartMode) throws Exception {
 
         Consumer<String> log = (logger != null) ? logger : System.out::println;
         IntConsumer progress = (progressListener != null) ? progressListener : value -> {
@@ -490,16 +515,15 @@ public class PdfDuplexGrouper {
         int rotateSourcePage = -1;
 
         log.accept("Apro input: " + inputPath);
-        PdfReader reader = new PdfReader(inputPath);
         PdfVersion targetVersion = (pdfVersion == null) ? PdfVersion.PDF_1_7 : pdfVersion;
-        PdfWriter writer = new PdfWriter(outputPath, new WriterProperties()
-                .setFullCompressionMode(true)
-                .setCompressionLevel(PDF_COMPRESSION_LEVEL)
-                .setPdfVersion(targetVersion));
-
-        writer.setSmartMode(true);
-        try (PdfDocument src = new PdfDocument(reader);
-                PdfDocument dst = new PdfDocument(writer)) {
+        try (PdfReader reader = new PdfReader(inputPath);
+                PdfWriter writer = new PdfWriter(outputPath, new WriterProperties()
+                        .setFullCompressionMode(true)
+                        .setCompressionLevel(PDF_COMPRESSION_LEVEL)
+                        .setPdfVersion(targetVersion))) {
+            writer.setSmartMode(smartMode);
+            try (PdfDocument src = new PdfDocument(reader);
+                    PdfDocument dst = new PdfDocument(writer)) {
 
             int totalPages = src.getNumberOfPages();
             int totalUnits = Math.max(1, totalPages * 2);
@@ -724,7 +748,8 @@ public class PdfDuplexGrouper {
             throwIfCancelled(isCancelled);
             exportEvolutionDuReport(outputPath, groupReports, postaEvolutionOpts, log);
             log.accept("Completato. Output: " + outputPath);
-            emitProgress(progress, totalUnits, totalUnits);
+                emitProgress(progress, totalUnits, totalUnits);
+            }
         }
     }
 

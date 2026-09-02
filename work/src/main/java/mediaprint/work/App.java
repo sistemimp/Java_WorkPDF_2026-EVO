@@ -45,6 +45,7 @@ import java.util.Objects;
 import java.util.Properties;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 public class App extends JFrame {
 
@@ -59,6 +60,10 @@ public class App extends JFrame {
         private static final String RC_OMOLOG_PRESET_AG = "AG (DCOPD1063)";
         private static final String RC_OMOLOG_PRESET_CUSTOM = "Personalizzata";
         private static final String TAB_LOG = "Log";
+        private static final String HEAP_ERROR_TITLE = "Memoria insufficiente";
+        private static final String HEAP_ERROR_MESSAGE = "Memoria insufficiente durante l'elaborazione.\n"
+                        + "Il programma ha raggiunto il limite di memoria Java heap space.\n"
+                        + "Chiudi altri programmi o prova con un PDF piu' piccolo.";
 
         private static final GeneralTabDefaults GENERAL_DEFAULTS = GeneralTabDefaults.getInstance();
         private static final CounterTabDefaults COUNTER_DEFAULTS = CounterTabDefaults.getInstance();
@@ -73,6 +78,7 @@ public class App extends JFrame {
         private static final RisoTabDefaults RISO_DEFAULTS = RisoTabDefaults.getInstance();
         private static final PostaEvolutionTabDefaults EVOLUTION_DEFAULTS = PostaEvolutionTabDefaults.getInstance();
         private static final LogTabDefaults LOG_DEFAULTS = LogTabDefaults.getInstance();
+        private static final AtomicBoolean HEAP_ERROR_DIALOG_VISIBLE = new AtomicBoolean(false);
 
         // --- Base ---
         private JTextField txtInput;
@@ -80,6 +86,7 @@ public class App extends JFrame {
         private JTextField txtMarker;
         private JCheckBox chkIgnoreCase;
         private JCheckBox chkNormalize;
+        private JCheckBox chkPdfSmartMode;
         private JCheckBox chkRotateByText;
         private JCheckBox chkResizeOnRotatedPages;
         private JTextField txtRotateByText;
@@ -288,6 +295,7 @@ public class App extends JFrame {
 
                 chkIgnoreCase = new JCheckBox("Ignora maiuscole/minuscole");
                 chkNormalize = new JCheckBox("Normalizza accenti/diacritici");
+                chkPdfSmartMode = new JCheckBox("Smart mode iText");
                 chkRotateByText = new JCheckBox("Ruota pagina in base a stringa");
                 chkResizeOnRotatedPages = new JCheckBox("Applica resize anche alle pagine ruotate");
                 txtRotateByText = new JTextField();
@@ -724,6 +732,7 @@ public class App extends JFrame {
 
                 chkIgnoreCase.setSelected(GENERAL_DEFAULTS.getBoolean("ignoreCase"));
                 chkNormalize.setSelected(GENERAL_DEFAULTS.getBoolean("normalizeAccents"));
+                chkPdfSmartMode.setSelected(GENERAL_DEFAULTS.getBoolean("pdfSmartMode"));
                 chkRotateByText.setSelected(GENERAL_DEFAULTS.getBoolean("rotateByTextEnabled"));
                 chkResizeOnRotatedPages.setSelected(GENERAL_DEFAULTS.getBoolean("rotateApplyResizeOnMatchedPages"));
                 txtRotateByText.setText(GENERAL_DEFAULTS.getString("rotateByTextString"));
@@ -1007,6 +1016,7 @@ public class App extends JFrame {
                 panel.setAlignmentX(Component.LEFT_ALIGNMENT);
                 panel.add(chkIgnoreCase);
                 panel.add(chkNormalize);
+                panel.add(chkPdfSmartMode);
                 return panel;
         }
 
@@ -1532,6 +1542,7 @@ public class App extends JFrame {
                 String marker = safe(txtMarker.getText());
                 boolean ignoreCase = chkIgnoreCase.isSelected();
                 boolean normalize = chkNormalize.isSelected();
+                boolean pdfSmartMode = chkPdfSmartMode.isSelected();
                 boolean rotateByText = chkRotateByText.isSelected();
                 boolean rotateApplyResizeOnMatchedPages = chkResizeOnRotatedPages.isSelected();
                 PdfVersion outputPdfVersion = getSelectedPdfVersion();
@@ -1908,7 +1919,8 @@ public class App extends JFrame {
                                                                         resizeRotationOpts,
                                                                         App.this::appendLog,
                                                                         forceA4BeforeResize,
-                                                                        this::isCancelled);
+                                                                        this::isCancelled,
+                                                                        pdfSmartMode);
                                                         sourcePdf = resizeTmp;
                                                         if (applyBarcode && rotateByText) {
                                                                 appendLog("Ordine confermato: barcode imbustatrice inserito dopo la rotazione (fase resize).");
@@ -1925,7 +1937,8 @@ public class App extends JFrame {
                                                                 null,
                                                                 addressBlockOpts,
                                                                 this::setProgress,
-                                                                this::isCancelled);
+                                                                this::isCancelled,
+                                                                pdfSmartMode);
                                                 if (isCancelled()) {
                                                         throw new CancellationException();
                                                 }
@@ -1949,22 +1962,14 @@ public class App extends JFrame {
                                                         exportKeyedRead(in, keyedReadString, keyedReadExcelPath);
                                                 }
                                         } finally {
-                                                if (resizeTmp != null) {
-                                                        try {
-                                                                Files.deleteIfExists(Paths.get(resizeTmp));
-                                                        } catch (Exception ignore) {
-                                                        }
-                                                }
-                                                if (risoTmp != null) {
-                                                        try {
-                                                                Files.deleteIfExists(Paths.get(risoTmp));
-                                                        } catch (Exception ignore) {
-                                                        }
-                                                }
+                                                deleteTemporaryFile(resizeTmp, App.this::appendLog);
+                                                deleteTemporaryFile(risoTmp, App.this::appendLog);
                                         }
                                         done.set(true);
                                 } catch (CancellationException ex) {
                                         appendLog("Operazione interrotta dall'utente.");
+                                } catch (OutOfMemoryError ex) {
+                                        handleHeapSpaceError("ERRORE");
                                 } catch (Exception ex) {
                                         appendLog("ERRORE: " + formatErrorMessage(ex));
                                 }
@@ -1983,6 +1988,7 @@ public class App extends JFrame {
                                 }
                                 setUiEnabled(true);
                                 currentWorker = null;
+                                requestMemoryCleanup();
                                 if (done.get()) {
                                         appendLog("Operazione completata.\nOutput: " + out);
                                         autoSaveConfigurationNextTo(out);
@@ -2067,6 +2073,8 @@ public class App extends JFrame {
                                         }
                                 } catch (CancellationException ex) {
                                         appendLog("Lettura interrotta dall'utente.");
+                                } catch (OutOfMemoryError ex) {
+                                        handleHeapSpaceError("ERRORE lettura");
                                 } catch (Exception ex) {
                                         appendLog("ERRORE lettura: " + formatErrorMessage(ex));
                                 }
@@ -2437,21 +2445,13 @@ public class App extends JFrame {
                         appendLog("Anteprima: " + previewOut);
                         autoSaveConfigurationNextTo(previewOut);
                         JOptionPane.showMessageDialog(this, "Anteprima creata:\n" + previewOut);
+                } catch (OutOfMemoryError ex) {
+                        handleHeapSpaceError("ERRORE anteprima");
                 } catch (Exception ex) {
                         appendLog("ERRORE anteprima: " + formatErrorMessage(ex));
                 } finally {
-                        if (firstPageTmp != null) {
-                                try {
-                                        Files.deleteIfExists(Paths.get(firstPageTmp));
-                                } catch (Exception ignore) {
-                                }
-                        }
-                        if (resizeTmp != null) {
-                                try {
-                                        Files.deleteIfExists(Paths.get(resizeTmp));
-                                } catch (Exception ignore) {
-                                }
-                        }
+                        deleteTemporaryFile(firstPageTmp, this::appendLog);
+                        deleteTemporaryFile(resizeTmp, this::appendLog);
                 }
         }
 
@@ -2533,6 +2533,7 @@ public class App extends JFrame {
                 cfg.marker = safe(txtMarker.getText());
                 cfg.ignoreCase = chkIgnoreCase.isSelected();
                 cfg.normalize = chkNormalize.isSelected();
+                cfg.pdfSmartMode = chkPdfSmartMode.isSelected();
                 cfg.rotateByTextEnabled = chkRotateByText.isSelected();
                 cfg.rotateApplyResizeOnMatchedPages = chkResizeOnRotatedPages.isSelected();
                 cfg.rotateByTextString = safe(txtRotateByText.getText());
@@ -2677,6 +2678,7 @@ public class App extends JFrame {
                 txtMarker.setText(nullToEmpty(cfg.marker));
                 chkIgnoreCase.setSelected(cfg.ignoreCase);
                 chkNormalize.setSelected(cfg.normalize);
+                chkPdfSmartMode.setSelected(cfg.pdfSmartMode);
                 chkRotateByText.setSelected(cfg.rotateByTextEnabled);
                 chkResizeOnRotatedPages.setSelected(cfg.rotateApplyResizeOnMatchedPages);
                 txtRotateByText.setText(nullToEmpty(cfg.rotateByTextString));
@@ -3962,6 +3964,7 @@ public class App extends JFrame {
                 cmbPdfVersion.setEnabled(enabled);
                 chkIgnoreCase.setEnabled(enabled);
                 chkNormalize.setEnabled(enabled);
+                chkPdfSmartMode.setEnabled(enabled);
                 chkRotateByText.setEnabled(enabled);
                 chkResizeOnRotatedPages.setEnabled(enabled);
                 chkApplyResize.setEnabled(enabled);
@@ -4095,6 +4098,36 @@ public class App extends JFrame {
                 return p.toLowerCase().endsWith(".pdf") ? p.substring(0, p.length() - 4) + suffix : p + suffix;
         }
 
+        static boolean deleteTemporaryFile(String temporaryPath, Consumer<String> logger) {
+                if (isBlank(temporaryPath)) {
+                        return true;
+                }
+                Path path = Paths.get(temporaryPath);
+                IOException lastFailure = null;
+                for (int attempt = 0; attempt < 5; attempt++) {
+                        try {
+                                Files.deleteIfExists(path);
+                                return true;
+                        } catch (IOException ex) {
+                                lastFailure = ex;
+                                if (attempt == 4) {
+                                        break;
+                                }
+                                try {
+                                        Thread.sleep(50L * (attempt + 1));
+                                } catch (InterruptedException interrupted) {
+                                        Thread.currentThread().interrupt();
+                                        break;
+                                }
+                        }
+                }
+                if (logger != null) {
+                        String reason = lastFailure == null ? "operazione interrotta" : formatErrorMessage(lastFailure);
+                        logger.accept("ATTENZIONE: impossibile eliminare il file temporaneo " + path + ": " + reason);
+                }
+                return false;
+        }
+
         private static String defaultPreviewName(String base) {
                 return base.toLowerCase().endsWith(".pdf") ? base.substring(0, base.length() - 4) + "_preview.pdf"
                                 : base + "_preview.pdf";
@@ -4193,6 +4226,7 @@ public class App extends JFrame {
                 String marker;
                 boolean ignoreCase;
                 boolean normalize;
+                boolean pdfSmartMode;
                 boolean rotateByTextEnabled;
                 boolean rotateApplyResizeOnMatchedPages;
                 String rotateByTextString;
@@ -4327,6 +4361,7 @@ public class App extends JFrame {
                         put(props, "marker", marker);
                         putBoolean(props, "ignoreCase", ignoreCase);
                         putBoolean(props, "normalize", normalize);
+                        putBoolean(props, "pdfSmartMode", pdfSmartMode);
                         putBoolean(props, "rotateByTextEnabled", rotateByTextEnabled);
                         putBoolean(props, "rotateApplyResizeOnMatchedPages", rotateApplyResizeOnMatchedPages);
                         put(props, "rotateByTextString", rotateByTextString);
@@ -4474,6 +4509,7 @@ public class App extends JFrame {
                         cfg.marker = props.getProperty("marker", "");
                         cfg.ignoreCase = getBoolean(props, "ignoreCase", false);
                         cfg.normalize = getBoolean(props, "normalize", false);
+                        cfg.pdfSmartMode = getBoolean(props, "pdfSmartMode", true);
                         cfg.rotateByTextEnabled = getBoolean(props, "rotateByTextEnabled", false);
                         cfg.rotateApplyResizeOnMatchedPages = getBoolean(props,
                                         "rotateApplyResizeOnMatchedPages", true);
@@ -4883,11 +4919,78 @@ public class App extends JFrame {
 
         public static void main(String[] args) {
                 forceUtf8DefaultCharset();
+                AppLauncher.configureGraphicsProperties();
+                installGlobalExceptionHandler();
+                if (!Boolean.getBoolean(AppLauncher.LAUNCHER_ACTIVE_PROPERTY)) {
+                        AppLauncher.main(args);
+                        return;
+                }
                 try {
                         UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
                 } catch (Exception ignored) {
                 }
                 EventQueue.invokeLater(() -> new App().setVisible(true));
+        }
+
+        static void installGlobalExceptionHandler() {
+                Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
+                        if (isHeapSpaceError(throwable)) {
+                                showHeapSpaceError(null);
+                        } else {
+                                throwable.printStackTrace();
+                        }
+                });
+        }
+
+        private static boolean isHeapSpaceError(Throwable throwable) {
+                Throwable current = throwable;
+                while (current != null) {
+                        if (current instanceof OutOfMemoryError) {
+                                String message = current.getMessage();
+                                return message == null || message.toLowerCase(Locale.ITALIAN).contains("heap space");
+                        }
+                        current = current.getCause();
+                }
+                return false;
+        }
+
+        private static void showHeapSpaceError(Component parent) {
+                if (!HEAP_ERROR_DIALOG_VISIBLE.compareAndSet(false, true)) {
+                        return;
+                }
+                System.gc();
+                SwingUtilities.invokeLater(() -> {
+                        try {
+                                JOptionPane.showMessageDialog(parent, HEAP_ERROR_MESSAGE,
+                                                HEAP_ERROR_TITLE, JOptionPane.ERROR_MESSAGE);
+                        } finally {
+                                HEAP_ERROR_DIALOG_VISIBLE.set(false);
+                        }
+                });
+        }
+
+        private void handleHeapSpaceError(String context) {
+                appendLog(context + ": memoria insufficiente (Java heap space).");
+                SwingUtilities.invokeLater(() -> {
+                        progressBar.setIndeterminate(false);
+                        progressBar.setString("Memoria insufficiente");
+                });
+                showHeapSpaceError(this);
+        }
+
+        private static void requestMemoryCleanup() {
+                Thread cleanupThread = new Thread(() -> {
+                        System.gc();
+                        try {
+                                Thread.sleep(250L);
+                        } catch (InterruptedException ex) {
+                                Thread.currentThread().interrupt();
+                                return;
+                        }
+                        System.gc();
+                }, "workpdf-memory-cleanup");
+                cleanupThread.setDaemon(true);
+                cleanupThread.start();
         }
 
         private static void forceUtf8DefaultCharset() {

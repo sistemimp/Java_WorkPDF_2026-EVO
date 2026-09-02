@@ -1,3 +1,4 @@
 /.metadata/
 .vscode/
-doc/
+doc/*
+!doc/*.md

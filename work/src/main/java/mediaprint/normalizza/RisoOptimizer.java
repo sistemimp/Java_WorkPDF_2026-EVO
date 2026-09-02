@@ -60,19 +60,21 @@ public final class RisoOptimizer {
                 }
 
                 PdfOutputIntent intent = createSrgbOutputIntent();
-                try (PdfDocument src = new PdfDocument(new PdfReader(inputPath));
-                                PdfWriter writer = new PdfWriter(outputPath);
-                                PdfADocument dst = new PdfADocument(writer, PdfAConformance.PDF_A_3B, intent)) {
+                try (PdfReader reader = new PdfReader(inputPath);
+                                PdfWriter writer = new PdfWriter(outputPath)) {
+                        try (PdfDocument src = new PdfDocument(reader);
+                                        PdfADocument dst = new PdfADocument(writer, PdfAConformance.PDF_A_3B, intent)) {
 
-                        int totalPages = src.getNumberOfPages();
-                        for (int page = 1; page <= totalPages; page++) {
+                                int totalPages = src.getNumberOfPages();
+                                for (int page = 1; page <= totalPages; page++) {
+                                        throwIfCancelled(isCancelled);
+                                        src.copyPagesTo(page, page, dst);
+                                }
+
                                 throwIfCancelled(isCancelled);
-                                src.copyPagesTo(page, page, dst);
-                        }
-
-                        throwIfCancelled(isCancelled);
-                        if (options.hasRecordId()) {
-                                dst.getCatalog().put(new PdfName("RecordID"), new PdfString(options.recordId));
+                                if (options.hasRecordId()) {
+                                        dst.getCatalog().put(new PdfName("RecordID"), new PdfString(options.recordId));
+                                }
                         }
                 }
         }

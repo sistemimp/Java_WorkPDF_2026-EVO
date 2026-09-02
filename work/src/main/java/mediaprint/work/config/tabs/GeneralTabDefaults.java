@@ -23,6 +23,7 @@ public final class GeneralTabDefaults implements TabDefaults {
         values.put("pdfVersion", PdfVersion.PDF_1_7);
         values.put("ignoreCase", Boolean.FALSE);
         values.put("normalizeAccents", Boolean.TRUE);
+        values.put("pdfSmartMode", Boolean.TRUE);
         values.put("rotateByTextEnabled", Boolean.FALSE);
         values.put("rotateApplyResizeOnMatchedPages", Boolean.TRUE);
         values.put("rotateByTextString", "");

@@ -53,3 +53,9 @@ mvn package
 ```
 
 Il packaging produce un jar shaded con main class `mediaprint.work.AppLauncher`.
+
+## Documentazione
+
+- [Guida utente](doc/GUIDA_UTENTE.md)
+- [Documentazione tecnica](doc/DOCUMENTAZIONE_TECNICA.md)
+- [Creazione pacchetto di distribuzione](doc/creazione-pacchetto.md)
